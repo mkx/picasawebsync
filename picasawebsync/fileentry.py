@@ -6,6 +6,7 @@ import calendar
 import time
 import re
 import urllib
+import mimetypes
 
 
 from consts import Comparisons
