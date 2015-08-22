@@ -64,6 +64,7 @@ Soon to be supported:
     apt-get install python-gdata
 
 4. pip install --upgrade oauth2client
+pip install progress
 5. download the latest version from the releases directory
 6. untar it to a temporary directory (tar zxvf <filename> should work for most Linux distros)
 7. (optionally) install it using 

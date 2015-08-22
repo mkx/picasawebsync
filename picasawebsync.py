@@ -7,6 +7,7 @@ from picasawebsync.albums import Albums
 from picasawebsync.config import Config
 from picasawebsync.consts import *
 
+import logging
 
 # start of the program
 
@@ -194,8 +195,7 @@ config.excludes = r'|'.join([fnmatch.translate(x) for x in args.skip]) or r'$.'
 config.server_excludes = \
     r'|'.join([fnmatch.translate(x) for x in args.skipserver]) or r'$.'
 
-print
-(
+logging.info(
     "Excluding %s on client and %s on server" %
     (config.excludes, config.server_excludes)
 )

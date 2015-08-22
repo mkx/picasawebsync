@@ -14,6 +14,8 @@ import gdata.geo
 
 import logging
 
+from progress.bar import Bar
+
 
 # Class to store details of an album
 class Albums:
@@ -87,12 +89,20 @@ class Albums:
             webAlbumTitle = Albums.flatten(webAlbum.title.text)
             if re.match(server_excludes, webAlbumTitle):
                 if self.config.verbose:
-                    print ('Skipping (because matches server exclude) web-album %s (containing %s files)' % (
-                        webAlbum.title.text, webAlbum.numphotos.text))
+                    print(
+                        'Skipping (because matches server exclude) '
+                        'web-album %s (containing %s files)' %
+                        (
+                            webAlbum.title.text,
+                            webAlbum.numphotos.text
+                        )
+                    )
             else:
                 if self.config.verbose:
-                    print (
-                        'Scanning web-album %s (containing %s files)' % (webAlbum.title.text, webAlbum.numphotos.text))
+                    print(
+                        'Scanning web-album %s (containing %s files)' %
+                        (webAlbum.title.text, webAlbum.numphotos.text)
+                    )
                 if webAlbumTitle in self.albums:
                     foundAlbum = self.albums[webAlbumTitle]
                     self.scanWebPhotos(foundAlbum, webAlbum, deletedups)
@@ -109,7 +119,9 @@ class Albums:
                     self.scanWebPhotos(album, webAlbum, deletedups)
 
     def scanWebPhotos(self, foundAlbum, webAlbum, deletedups):
-        photos = self.config.getGdClient().GetFeed(webAlbum.GetPhotosUri() + "&imgmax=d")
+        photos = self.config.getGdClient().GetFeed(
+            webAlbum.GetPhotosUri() + "&imgmax=d"
+        )
         webAlbum = WebAlbum(webAlbum, int(photos.total_results.text))
         foundAlbum.webAlbum.append(webAlbum)
         for photo in photos.entry:
@@ -131,17 +143,28 @@ class Albums:
                 else:
                     entry.setWebReference(photo)
             else:
-                fileEntry = FileEntry(self.config, photoTitle, None, photo, False, foundAlbum)
+                fileEntry = FileEntry(
+                    self.config,
+                    photoTitle,
+                    None,
+                    photo,
+                    False,
+                    foundAlbum
+                )
                 foundAlbum.entries[photoTitle] = fileEntry
 
-    def uploadMissingAlbumsAndFiles(self, compareattributes, mode, test, allowDelete):
-        size = 0
+    def uploadMissingAlbumsAndFiles(self, compareattributes, mode, test,
+                                    allowDelete):
+        size = 0  # total number of items
+        count = 0  # number of actions
         for album in self.albums.itervalues():
             size += len(album.entries)
-        count = 0
         actionCounts = {}
         for action in Actions:
             actionCounts[action] = 0
+
+        bar = Bar('Uploading', max=size)
+
         for album in self.albums.itervalues():
             for file in album.entries.itervalues():
                 changed = file.changed(compareattributes)
@@ -177,8 +200,15 @@ class Albums:
 
                 actionCounts[mode[changed]] += 1
                 count += 1
+                bar.next()
             album.writeDate()
-        print("Finished transferring files. Total files found %s, composed of %s" % (count, str(actionCounts)))
+
+        bar.finish()
+
+        print(
+            "Finished transferring files. Total files found %s, composed of %s"
+            % (count, str(actionCounts))
+        )
 
     @staticmethod
     def createAlbumName(name, index):
@@ -190,5 +220,3 @@ class Albums:
     @staticmethod
     def flatten(name):
         return re.sub("#[0-9]*$", "", name).rstrip()
-
-
