@@ -2,14 +2,6 @@
 
 import argparse
 import fnmatch
-import tempfile
-import httplib2
-
-# from apiclient import discovery
-from oauth2client import client
-from subprocess import call
-
-import Image
 
 from picasawebsync.albums import *
 from picasawebsync.config import *

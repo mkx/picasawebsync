@@ -13,6 +13,7 @@ import gdata.photos
 import atom
 
 from consts import Comparisons, supportedImageFormats, supportedVideoFormats
+import albums
 
 
 class FileEntry:
@@ -176,16 +177,14 @@ class FileEntry:
                 photo = self.upload_local_img(subAlbum)
             if self.type in supportedVideoFormats:
                 if self.getLocalSize() > 1073741824:
-                    print
-                    (
+                    print(
                         "Not uploading %s because it exceeds maximum file "
                         "size" % self.path
                     )
                 else:
                     photo = self.upload_local_video(subAlbum)
         else:
-            print
-            (
+            print(
                 "Skipped %s (because can't upload file of type %s)."
                 % (self.path, self.type)
             )
@@ -197,8 +196,7 @@ class FileEntry:
         metadata.title = atom.Title(text=name)
         self.addMetadata(metadata)
         currentFile = self.path
-        photo = self.config.getGdClient().InsertPhoto
-        (
+        photo = self.config.getGdClient().InsertPhoto(
             subAlbum.albumUri,
             metadata,
             currentFile,
@@ -214,8 +212,7 @@ class FileEntry:
         # have to quote as certain charecters, e.g. / seem to break it
         metadata.title = atom.Title(text=name)
         self.addMetadata(metadata)
-        photo = self.config.getGdClient().InsertVideo
-        (
+        photo = self.config.getGdClient().InsertVideo(
             subAlbum.albumUri,
             metadata,
             self.path,
