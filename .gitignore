@@ -2,6 +2,8 @@
 
 *~
 
+client_secrets.json
+
 # Packages
 *.egg
 *.egg-info
