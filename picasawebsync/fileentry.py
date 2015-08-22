@@ -9,6 +9,7 @@ import urllib
 import mimetypes
 import hashlib
 
+import gdata.photos
 
 from consts import Comparisons, supportedImageFormats, supportedVideoFormats
 
