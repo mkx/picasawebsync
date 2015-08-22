@@ -84,7 +84,7 @@ class FileEntry:
                     if self.remoteDate < self.getLocalDate() + 60:
                         return Comparisons.REMOTE_OLDER
                 if compareattributes & 2:
-                    if verbose:
+                    if self.config.verbose:
                         print "%s: remote size=%s and local=%s" % (
                             self.getFullName(), self.remoteSize, self.getLocalSize())
                     if self.remoteSize != self.getLocalSize():
@@ -161,7 +161,7 @@ class FileEntry:
                 )
                 subAlbum = WebAlbum(googleWebAlbum, 0)
                 self.album.webAlbum.append(subAlbum)
-                if verbose:
+                if self.config.verbose:
                     print ('Created album %s to sync %s' %
                     (
                         subAlbum.albumTitle,
@@ -229,5 +229,5 @@ class FileEntry:
             summary_type='text'
         )
         metadata.checksum = gdata.photos.Checksum(text=self.getLocalHash())
-        if verbose and (metadata is None):
+        if self.config.verbose and (metadata is None):
             print "Warning: " + self.name + " does not have a date set"
