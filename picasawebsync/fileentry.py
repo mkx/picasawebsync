@@ -7,6 +7,7 @@ import time
 import re
 import urllib
 import mimetypes
+import hashlib
 
 
 from consts import Comparisons
@@ -128,7 +129,7 @@ class FileEntry:
         self.setWebReference(self.config.getGdClient().UpdatePhotoMetadata(entry))
 
     def download_remote(self, event):
-        if self.type not in chosenFormats:
+        if self.type not in self.config.chosenFormats:
             print ("Skipped %s (because can't download file of type %s)." % (self.path, self.type))
         elif dateLimit is not None and self.remoteTimestamp < dateLimit:
             print ("Skipped %s (because remote album pre %s)." % (self.path, time.asctime(dateLimit)))
@@ -145,7 +146,7 @@ class FileEntry:
         print ("Deleted %s" % self.getFullName())
 
     def upload_local(self, event):
-        if self.type in chosenFormats:
+        if self.type in self.config.chosenFormats:
             while self.album.webAlbumIndex < len(self.album.webAlbum) and \
                   self.album.webAlbum[self.album.webAlbumIndex].numberFiles >= 999:
                 self.album.webAlbumIndex = self.album.webAlbumIndex + 1

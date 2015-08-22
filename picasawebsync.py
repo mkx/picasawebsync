@@ -1,7 +1,6 @@
 #!/usr/bin/python
 
 import argparse
-import hashlib
 import fnmatch
 import tempfile
 import httplib2
