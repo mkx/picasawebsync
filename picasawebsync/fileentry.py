@@ -1,7 +1,19 @@
 # Class to store details of an individual file
 
+
+import os.path
+import calendar
+import time
+import re
+import urllib
+
+
+from consts import Comparisons
+
+
 class FileEntry:
-    def __init__(self, name, path, webReference, isLocal, album):
+    def __init__(self, config, name, path, webReference, isLocal, album):
+        self.config = config
         self.name = name
         if path:
             self.path = path
@@ -39,10 +51,9 @@ class FileEntry:
 
     def getEditObject(self):
         if self.gphoto_id:
-            photo = gd_client.GetFeed(
+            photo = self.config.getGdClient().GetFeed(
                 '/data/feed/api/user/%s/albumid/%s/photoid/%s' % ("default", self.albumid, self.gphoto_id))
             return photo
-        # FIXME throw exception
         return None
 
     def getFullName(self):
@@ -110,10 +121,10 @@ class FileEntry:
         self.upload_local(event)
 
     def update_remote_metadata(self, event):
-        entry = gd_client.GetEntry(self.getEditObject().GetEditLink().href)
+        entry = self.config.getGdClient().GetEntry(self.getEditObject().GetEditLink().href)
         self.album.considerEarliestDate(entry.exif)
         self.addMetadata(entry)
-        self.setWebReference(gd_client.UpdatePhotoMetadata(entry))
+        self.setWebReference(self.config.getGdClient().UpdatePhotoMetadata(entry))
 
     def download_remote(self, event):
         if self.type not in chosenFormats:
@@ -129,7 +140,7 @@ class FileEntry:
             os.utime(path, (int(self.remoteDate), int(self.remoteDate)))
 
     def delete_remote(self, event):
-        gd_client.Delete(self.getEditObject())
+        self.config.getGdClient().Delete(self.getEditObject())
         print ("Deleted %s" % self.getFullName())
 
     def upload_local(self, event):
@@ -138,7 +149,7 @@ class FileEntry:
                   self.album.webAlbum[self.album.webAlbumIndex].numberFiles >= 999:
                 self.album.webAlbumIndex = self.album.webAlbumIndex + 1
             if self.album.webAlbumIndex >= len(self.album.webAlbum):
-                googleWebAlbum = gd_client.InsertAlbum(
+                googleWebAlbum = self.config.getGdClient().InsertAlbum(
                     title=Albums.createAlbumName(
                         self.album.getAlbumName(),
                         self.album.webAlbumIndex
@@ -182,7 +193,7 @@ class FileEntry:
         metadata.title = atom.Title(text=name)
         self.addMetadata(metadata)
         currentFile = self.path
-        photo = gd_client.InsertPhoto
+        photo = self.config.getGdClient().InsertPhoto
         (
             subAlbum.albumUri,
             metadata,
@@ -199,7 +210,7 @@ class FileEntry:
         # have to quote as certain charecters, e.g. / seem to break it
         metadata.title = atom.Title(text=name)
         self.addMetadata(metadata)
-        photo = gd_client.InsertVideo
+        photo = self.config.getGdClient().InsertVideo
         (
             subAlbum.albumUri,
             metadata,

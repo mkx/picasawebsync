@@ -1,26 +1,21 @@
 #!/usr/bin/python
 
-import re
 import argparse
 import mimetypes
 import hashlib
-import time
-import urllib
 import fnmatch
 import tempfile
-import calendar
 import httplib2
 
 # from apiclient import discovery
 from oauth2client import client
 from subprocess import call
 
-from gdata.photos.service import *
-import gdata.media
-import gdata.geo
 import Image
 
 from picasawebsync.albums import *
+from picasawebsync.config import *
+from picasawebsync.consts import *
 
 
 # Upload video code came form http://nathanvangheem.com/news/moving-to-picasa-update
@@ -90,225 +85,8 @@ gdata.photos.service.PhotosService.InsertVideo = InsertVideo
 
 
 
-# Method to translate directory name to an album name
-def convertDirToAlbum(formElements, root, name, replace, namingextract):
-    if root == name:
-        return "Home"
-    nameElements = re.split("/", re.sub("^/", "", name[len(root):]))
-    which = min(len(formElements), len(nameElements))
-    work = formElements[which - 1].format(*nameElements)
-    # apply naming extraction if provided
-    if namingextract:
-        nePattern = namingextract.split('|')
-        work = re.sub(nePattern[0], nePattern[1], work)
-
-    # apply replacement pattern if provided
-    if replace:
-        rePattern = replace.split('|')
-        work = re.sub(rePattern[0], rePattern[1], work)
-
-    return work
-
-
-supportedImageFormats = frozenset(
-    [
-        "image/bmp",
-        "image/gif",
-        "image/jpeg",
-        "image/png"
-    ]
-)
-
-supportedVideoFormats = frozenset(
-    [
-        "video/3gpp",
-        "video/avi",
-        "video/quicktime",
-        "video/mp4",
-        "video/mpeg",
-        "video/mpeg4",
-        "video/msvideo",
-        "video/x-ms-asf",
-        "video/x-ms-wmv",
-        "video/x-msvideo"
-    ]
-)
-
-
-class Enum(set):
-    def __getattr__(self, name):
-        if name in self:
-            return name
-        raise AttributeError
-
-
-Comparisons = Enum(
-    [
-        'REMOTE_OLDER',
-        'DIFFERENT',
-        'SAME',
-        'UNKNOWN',
-        'LOCAL_ONLY',
-        'REMOTE_ONLY'
-    ]
-)
-
-Actions = Enum(
-    [
-        'UPLOAD_LOCAL',
-        'DELETE_LOCAL',
-        'SILENT',
-        'REPORT',
-        'DOWNLOAD_REMOTE',
-        'DELETE_REMOTE',
-        'TAG_REMOTE',
-        'REPLACE_REMOTE_WITH_LOCAL',
-        'UPDATE_REMOTE_METADATA'
-    ]
-)
-
-UploadOnlyActions = {
-    Comparisons.REMOTE_OLDER: Actions.REPLACE_REMOTE_WITH_LOCAL,
-    Comparisons.DIFFERENT: Actions.REPORT,
-    Comparisons.SAME: Actions.SILENT,
-    Comparisons.UNKNOWN: Actions.REPORT,
-    Comparisons.LOCAL_ONLY: Actions.UPLOAD_LOCAL,
-    Comparisons.REMOTE_ONLY: Actions.REPORT}
-DownloadOnlyActions = {
-    Comparisons.REMOTE_OLDER: Actions.REPORT,
-    Comparisons.DIFFERENT: Actions.DOWNLOAD_REMOTE,
-    Comparisons.SAME: Actions.SILENT,
-    Comparisons.UNKNOWN: Actions.REPORT,
-    Comparisons.LOCAL_ONLY: Actions.REPORT,
-    Comparisons.REMOTE_ONLY: Actions.DOWNLOAD_REMOTE}
-PassiveActions = {
-    Comparisons.REMOTE_OLDER: Actions.REPORT,
-    Comparisons.DIFFERENT: Actions.REPORT,
-    Comparisons.SAME: Actions.SILENT,
-    Comparisons.UNKNOWN: Actions.REPORT,
-    Comparisons.LOCAL_ONLY: Actions.REPORT,
-    Comparisons.REMOTE_ONLY: Actions.REPORT}
-RepairActions = {
-    Comparisons.REMOTE_OLDER: Actions.REPLACE_REMOTE_WITH_LOCAL,
-    Comparisons.DIFFERENT: Actions.REPLACE_REMOTE_WITH_LOCAL,
-    Comparisons.SAME: Actions.SILENT,
-    Comparisons.UNKNOWN: Actions.UPDATE_REMOTE_METADATA,
-    Comparisons.LOCAL_ONLY: Actions.UPLOAD_LOCAL,
-    Comparisons.REMOTE_ONLY: Actions.DELETE_REMOTE}
-SyncActions = {
-    Comparisons.REMOTE_OLDER: Actions.REPLACE_REMOTE_WITH_LOCAL,
-    Comparisons.DIFFERENT: Actions.REPORT,
-    Comparisons.SAME: Actions.SILENT,
-    Comparisons.UNKNOWN: Actions.REPORT,
-    Comparisons.LOCAL_ONLY: Actions.UPLOAD_LOCAL,
-    Comparisons.REMOTE_ONLY: Actions.DOWNLOAD_REMOTE}
-SyncUploadActions = {
-    Comparisons.REMOTE_OLDER: Actions.REPLACE_REMOTE_WITH_LOCAL,
-    Comparisons.DIFFERENT: Actions.REPLACE_REMOTE_WITH_LOCAL,
-    Comparisons.SAME: Actions.SILENT,
-    Comparisons.UNKNOWN: Actions.REPLACE_REMOTE_WITH_LOCAL,
-    Comparisons.LOCAL_ONLY: Actions.UPLOAD_LOCAL,
-    Comparisons.REMOTE_ONLY: Actions.DELETE_REMOTE}
-
-modes={
-    'upload': UploadOnlyActions,
-    'download': DownloadOnlyActions,
-    'report': PassiveActions,
-    'repairUpload': RepairActions,
-    'sync': SyncActions,
-    'syncUpload': SyncUploadActions
-}
-
-formats={
-    'photo': supportedImageFormats,
-    'video': supportedVideoFormats,
-    'both': supportedImageFormats.union(supportedVideoFormats)
-}
-
-allowDeleteOptions={
-    'neither': (False, False),
-    'both': (True, True),
-    'local': (True, False),
-    'remote': (False, True)
-}
-
-
-def convertAllowDelete(string):
-    return allowDeleteOptions[string]
-
-
-def convertMode(string):
-    return modes[string]
-
-
-def convertFormat(string):
-    return formats[string]
-
-
-def convertDate(string):
-    return time.strptime(string, '%Y-%m-%d')
-
-
-def repeat(function,  description, onFailRethrow):
-    exc_info = None
-    for attempt in range(3):
-        try:
-            if verbose and (attempt > 0):
-                print ("Trying %s attempt %s" % (description, attempt))
-            return function()
-        except Exception,  e:
-            if exc_info is None:
-                exc_info = e
-                # FIXME - to try and stop 403 token expired
-                time.sleep(6)
-                continue
-            else:
-                break
-        else:
-            print
-            (
-                "WARNING: Failed to %s. This was due to %s" %
-                (description, exc_info)
-            )
-            if onFailRethrow:
-                raise exc_info
-
-
-def oauthLogin():
-    # using http://stackoverflow.com/questions/20248555/
-    # list-of-spreadsheets-gdata-oauth2/29157967#29157967 (thanks)
-    from oauth2client.file import Storage
-
-    filename = os.path.join(os.path.expanduser('~'), ".picasawebsync")
-    storage = Storage(filename)
-    credentials = storage.get()
-
-    if credentials is None or credentials.invalid:
-        flow = client.flow_from_clientsecrets(
-            'client_secrets.json',
-            scope='https://picasaweb.google.com/data/',
-            redirect_uri='urn:ietf:wg:oauth:2.0:oob'
-        )
-        auth_uri = flow.step1_get_authorize_url()
-        print 'Authorization URL: %s' % auth_uri
-        auth_code = raw_input('Enter the auth code: ')
-        credentials = flow.step2_exchange(auth_code)
-        storage.put(credentials)
-    if credentials.access_token_expired:
-        credentials.refresh(httplib2.Http())
-
-    gd_client = gdata.photos.service.PhotosService(
-        email='default',
-        additional_headers={
-            'Authorization': 'Bearer %s' % credentials.access_token
-        }
-    )
-
-    return gd_client
 
 # start of the program
-
-defaultNamingFormat = ["{0}", "{1} ({0})"]
 
 parser = argparse.ArgumentParser()
 
@@ -472,35 +250,36 @@ for comparison in Comparisons:
 
 args = parser.parse_args()
 
-chosenFormats = args.format
-dateLimit = args.dateLimit
+config = Config()
 
-gd_client = oauthLogin()
-verbose = args.verbose
-rootDirs = args.directory  # set the directory you want to start from
+config.refreshLogin()
 
-albumNaming = args.naming
-mode = args.mode
-noupdatealbummetadata = args.noupdatealbummetadata
+config.chosenFormats = args.format
+config.dateLimit = args.dateLimit
+
+config.verbose = args.verbose
+config.rootDirs = args.directory  # set the directory you want to start from
+
+config.albumNaming = args.naming
+config.mode = args.mode
+config.noupdatealbummetadata = args.noupdatealbummetadata
 for comparison in Comparisons:
     r = getattr(args, "override:%s" % comparison, None)
     if r:
         mode[comparison] = r
 
-excludes = r'|'.join([fnmatch.translate(x) for x in args.skip]) or r'$.'
-server_excludes = \
+config.excludes = r'|'.join([fnmatch.translate(x) for x in args.skip]) or r'$.'
+config.server_excludes = \
 r'|'.join([fnmatch.translate(x) for x in args.skipserver]) or r'$.'
 
 print
 (
     "Excluding %s on client and %s on server" %
-    (excludes, server_excludes)
+    (config.excludes, config.server_excludes)
 )
 
 albums = Albums(
-    rootDirs,
-    albumNaming,
-    excludes,
+    config,
     args.replace,
     args.namingextract
 )
@@ -508,12 +287,12 @@ albums = Albums(
 albums.scanWebAlbums(
     args.owner,
     args.deletedups,
-    server_excludes
+    config.server_excludes
 )
 
 albums.uploadMissingAlbumsAndFiles(
     args.compareattributes,
-    mode,
+    config.mode,
     args.test,
     args.allowDelete
 )

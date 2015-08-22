@@ -1,11 +1,45 @@
 import os
+import re
+import urllib
+
+
+from albumentry import *
+from webalbum import *
+from fileentry import *
+
+from consts import Actions
+
+import gdata.media
+import gdata.geo
+
+import logging
 
 
 # Class to store details of an album
 class Albums:
-    def __init__(self, rootDirs, albumNaming, excludes, replace, namingextract):
-        self.rootDirs = rootDirs
-        self.albums = self.scanFileSystem(albumNaming, excludes, replace, namingextract)
+    def __init__(self, config, replace, namingextract):
+        self.config = config
+        self.rootDirs = config.rootDirs
+        self.albums = self.scanFileSystem(config.albumNaming, config.excludes, replace, namingextract)
+
+    # Method to translate directory name to an album name
+    def convertDirToAlbum(formElements, root, name, replace, namingextract):
+        if root == name:
+            return "Home"
+        nameElements = re.split("/", re.sub("^/", "", name[len(root):]))
+        which = min(len(formElements), len(nameElements))
+        work = formElements[which - 1].format(*nameElements)
+        # apply naming extraction if provided
+        if namingextract:
+            nePattern = namingextract.split('|')
+            work = re.sub(nePattern[0], nePattern[1], work)
+
+        # apply replacement pattern if provided
+        if replace:
+            rePattern = replace.split('|')
+            work = re.sub(rePattern[0], rePattern[1], work)
+
+        return work
 
     # walk the directory tree populating the list of files we have locally
     # @print_timing
@@ -14,7 +48,7 @@ class Albums:
         for rootDir in self.rootDirs:
             for dirName, subdirList, fileList in os.walk(rootDir):
                 subdirList[:] = [d for d in subdirList if not re.match(excludes, os.path.join(dirName, d))]
-                albumName = convertDirToAlbum(albumNaming, rootDir, dirName, replace, namingextract)
+                albumName = self.convertDirToAlbum(albumNaming, rootDir, dirName, replace, namingextract)
                 # have we already seen this album? If so append our path to it's list
                 if albumName in fileAlbums:
                     album = fileAlbums[albumName]
@@ -30,10 +64,12 @@ class Albums:
                     if not re.match(excludes, fullFilename):
                         # figure out the filename relative to the root dir of the album (to ensure uniqeness)
                         relFileName = re.sub("^/", "", fullFilename[len(thisRoot):])
-                        fileEntry = FileEntry(relFileName, fullFilename, None, True, album)
+                        fileEntry = FileEntry(self.config, relFileName, fullFilename, None, True, album)
                         album.entries[relFileName] = fileEntry
-        #if verbose:
-        #    print ("Found " + str(len(fileAlbums)) + " albums on the filesystem")
+        if self.config.verbose:
+            print ("Found " + str(len(fileAlbums)) + " albums on the filesystem")
+        if len(fileAlbums) == 0:
+            logging.error("No local album")
         return fileAlbums
 
     def deleteEmptyWebAlbums(self, owner):
@@ -46,18 +82,17 @@ class Albums:
 
     def scanWebAlbums(self, owner, deletedups, server_excludes):
         # walk the web album finding albums there
-        webAlbums = gd_client.GetUserFeed(user=owner)
+        webAlbums = self.config.getGdClient().GetUserFeed(user=owner)
         for webAlbum in webAlbums.entry:
             webAlbumTitle = Albums.flatten(webAlbum.title.text)
             if re.match(server_excludes, webAlbumTitle):
-                if verbose:
+                if self.config.verbose:
                     print ('Skipping (because matches server exclude) web-album %s (containing %s files)' % (
                         webAlbum.title.text, webAlbum.numphotos.text))
             else:
-                if verbose:
+                if self.config.verbose:
                     print (
                         'Scanning web-album %s (containing %s files)' % (webAlbum.title.text, webAlbum.numphotos.text))
-                # print "Album %s is %s in %s" % (webAlbumTitle, webAlbumTitle in self.albums,	",".join(self.albums))
                 if webAlbumTitle in self.albums:
                     foundAlbum = self.albums[webAlbumTitle]
                     self.scanWebPhotos(foundAlbum, webAlbum, deletedups)
@@ -67,9 +102,7 @@ class Albums:
                     self.scanWebPhotos(album, webAlbum, deletedups)
 
     def scanWebPhotos(self, foundAlbum, webAlbum, deletedups):
-        # bit of a hack, but can't see anything in api to do it.
-        photos = repeat(lambda: gd_client.GetFeed(webAlbum.GetPhotosUri() + "&imgmax=d"),
-                        "list photos in album %s" % foundAlbum.albumName, True)
+        photos = self.config.getGdClient().GetFeed(webAlbum.GetPhotosUri() + "&imgmax=d")
         webAlbum = WebAlbum(webAlbum, int(photos.total_results.text))
         foundAlbum.webAlbum.append(webAlbum)
         for photo in photos.entry:
@@ -82,15 +115,16 @@ class Albums:
                 entry = foundAlbum.entries[photoTitle]
                 if entry.isWeb():
                     if (deletedups):
-                        print "Deleted dupe of %s on server" % photoTitle
-                        repeat(lambda: gd_client.Delete(photo), "deleting dupe %s" % photoTitle, False)
+                        print("Deleted dupe of %s on server" % photoTitle)
+                        self.config.getGdClient.Delete(photo)
                     else:
-                        print "WARNING: More than one copy of %s - ignoring" % photoTitle
+                        logging.warning(
+                            "More than one copy of %s - ignoring" % photoTitle
+                        )
                 else:
                     entry.setWebReference(photo)
-                    # print photo.exif.time
             else:
-                fileEntry = FileEntry(photoTitle, None, photo, False, foundAlbum)
+                fileEntry = FileEntry(self.config, photoTitle, None, photo, False, foundAlbum)
                 foundAlbum.entries[photoTitle] = fileEntry
 
     def uploadMissingAlbumsAndFiles(self, compareattributes, mode, test, allowDelete):
@@ -104,19 +138,36 @@ class Albums:
         for album in self.albums.itervalues():
             for file in album.entries.itervalues():
                 changed = file.changed(compareattributes)
-                if verbose:
-                    print ("%s (%s) #%s/%s - %s" % (mode[changed], changed, str(count), str(size), file.getFullName()))
+                if self.config.verbose:
+                    print(
+                        "%s (%s) #%s/%s - %s" %
+                        (
+                            mode[changed],
+                            changed,
+                            str(count),
+                            str(size),
+                            file.getFullName()
+                        )
+                    )
                 if not test:
-                    if mode[changed] == Actions.DELETE_LOCAL and not allowDelete[0]:
-                        print (
-                            "Not deleteing local file %s because permissions not granted using allowDelete" % file.getFullName())
+                    if mode[changed] == Actions.DELETE_LOCAL \
+                       and not allowDelete[0]:
+                        print(
+                            "Not deleting local file %s because permissions "
+                            "not granted using allowDelete" %
+                            file.getFullName()
+                        )
                     else:
-                        if mode[changed] == Actions.DELETE_REMOTE and not allowDelete[1]:
-                            print (
-                                "Not deleteing remote file %s because permissions not granted using allowDelete" % file.getFullName())
+                        if mode[changed] == Actions.DELETE_REMOTE \
+                           and not allowDelete[1]:
+                            print(
+                                "Not deleteing remote file %s because "
+                                "permissions not granted using allowDelete" %
+                                file.getFullName()
+                            )
                         else:
-                            repeat(lambda: getattr(file, mode[changed].lower())(changed),
-                                   "%s on %s identified as %s" % (mode[changed], file.getFullName(), changed), False)
+                            getattr(file, mode[changed].lower())(changed)
+
                 actionCounts[mode[changed]] += 1
                 count += 1
             album.writeDate()
