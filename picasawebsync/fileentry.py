@@ -10,6 +10,7 @@ import mimetypes
 import hashlib
 
 import gdata.photos
+import atom
 
 from consts import Comparisons, supportedImageFormats, supportedVideoFormats
 
