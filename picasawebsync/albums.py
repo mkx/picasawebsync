@@ -5,7 +5,7 @@ import urllib
 
 from albumentry import *
 from webalbum import *
-from fileentry import *
+from fileentry import FileEntry
 
 from consts import Actions
 

@@ -13,7 +13,9 @@ import gdata.photos
 import atom
 
 from consts import Comparisons, supportedImageFormats, supportedVideoFormats
-import albums
+
+
+import logging
 
 
 class FileEntry:
@@ -84,7 +86,6 @@ class FileEntry:
             if self.isWeb():
                 # filesize (2), date (1),  hash (4)
                 if compareattributes & 1:
-                    # print "%s: remote=%s and local=%s" % (self.getFullName(), time.gmtime(self.remoteDate), time.gmtime(self.getLocalDate()))
                     if self.remoteDate < self.getLocalDate() + 60:
                         return Comparisons.REMOTE_OLDER
                 if compareattributes & 2:
@@ -116,7 +117,13 @@ class FileEntry:
         None
 
     def report(self, event):
-        print ("Identified %s as %s - taking no action" % (self.name, event))
+        logging.info(
+            "Identified %s as %s - taking no action" %
+            (
+                self.name,
+                event
+            )
+        )
 
     def tag_remote(self, event):
         print ("Not implemented tag")
@@ -154,6 +161,8 @@ class FileEntry:
                   self.album.webAlbum[self.album.webAlbumIndex].numberFiles >= 999:
                 self.album.webAlbumIndex = self.album.webAlbumIndex + 1
             if self.album.webAlbumIndex >= len(self.album.webAlbum):
+                from albums import Albums
+                from webalbum import WebAlbum
                 googleWebAlbum = self.config.getGdClient().InsertAlbum(
                     title=Albums.createAlbumName(
                         self.album.getAlbumName(),
@@ -184,7 +193,7 @@ class FileEntry:
                 else:
                     photo = self.upload_local_video(subAlbum)
         else:
-            print(
+            logging.info(
                 "Skipped %s (because can't upload file of type %s)."
                 % (self.path, self.type)
             )
@@ -229,5 +238,7 @@ class FileEntry:
             summary_type='text'
         )
         metadata.checksum = gdata.photos.Checksum(text=self.getLocalHash())
-        if self.config.verbose and (metadata is None):
-            print "Warning: " + self.name + " does not have a date set"
+        if self.config.verbose and metadata is None:
+            logging.warning(
+                "%s does not have a date set" % self.name
+            )
