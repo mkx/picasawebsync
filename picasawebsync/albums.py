@@ -23,7 +23,7 @@ class Albums:
         self.albums = self.scanFileSystem(config.albumNaming, config.excludes, replace, namingextract)
 
     # Method to translate directory name to an album name
-    def convertDirToAlbum(self.formElements, root, name, replace, namingextract):
+    def convertDirToAlbum(self, formElements, root, name, replace, namingextract):
         if root == name:
             return "Home"
         nameElements = re.split("/", re.sub("^/", "", name[len(root):]))
