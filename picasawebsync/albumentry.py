@@ -1,3 +1,6 @@
+import logging
+
+
 class AlbumEntry:
     def __init__(self, config, fileName, albumName):
         self.config = config
@@ -34,7 +37,9 @@ class AlbumEntry:
                         converter=gdata.photos.AlbumEntryFromString
                     )
         else:
-            print "Not Attempting to write date to album " + self.albumName
+            logging.info(
+                "Not Attempting to write date to album %s" % self.albumName
+            )
 
     def __str__(self):
         return (

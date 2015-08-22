@@ -8,12 +8,6 @@ from picasawebsync.config import Config
 from picasawebsync.consts import *
 
 
-
-
-
-
-
-
 # start of the program
 
 parser = argparse.ArgumentParser()
@@ -198,7 +192,7 @@ for comparison in Comparisons:
 
 config.excludes = r'|'.join([fnmatch.translate(x) for x in args.skip]) or r'$.'
 config.server_excludes = \
-r'|'.join([fnmatch.translate(x) for x in args.skipserver]) or r'$.'
+    r'|'.join([fnmatch.translate(x) for x in args.skipserver]) or r'$.'
 
 print
 (
