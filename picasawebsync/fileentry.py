@@ -10,7 +10,7 @@ import mimetypes
 import hashlib
 
 
-from consts import Comparisons
+from consts import Comparisons, supportedImageFormats, supportedVideoFormats
 
 
 class FileEntry:
