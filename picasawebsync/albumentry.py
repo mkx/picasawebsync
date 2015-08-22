@@ -1,5 +1,6 @@
 class AlbumEntry:
-    def __init__(self, fileName, albumName):
+    def __init__(self, config, fileName, albumName):
+        self.config = config
         self.paths = [fileName]
         self.rootPath = fileName
         self.albumName = albumName
@@ -10,7 +11,7 @@ class AlbumEntry:
 
     def considerEarliestDate(self, exif):
         if exif is not None and exif.time is not None \
-           and noupdatealbummetadata is False:
+           and self.config.noupdatealbummetadata is False:
             date = exif.time.text
             if self.earliestDate is None or date < self.earliestDate:
                 self.earliestDate = date
@@ -27,17 +28,10 @@ class AlbumEntry:
                 if edit_link is None:
                     print "Warning: Null edit link from " + a.albumTitle + " so skipping metadata update"
                 else:
-                    repeat
-                    (
-                        lambda:
-                        gd_client.Put
-                        (
-                            album,
-                            edit_link.href,
-                            converter=gdata.photos.AlbumEntryFromString
-                        ),
-                        "Update album metadata for " + a.albumTitle,
-                        False
+                    self.config.getGdClient().Put(
+                        album,
+                        edit_link.href,
+                        converter=gdata.photos.AlbumEntryFromString
                     )
         else:
             print "Not Attempting to write date to album " + self.albumName

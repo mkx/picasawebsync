@@ -56,7 +56,7 @@ class Albums:
                 else:
                     # create a new album
                     thisRoot = dirName
-                    album = AlbumEntry(dirName, albumName)
+                    album = AlbumEntry(self.config, dirName, albumName)
                     fileAlbums[albumName] = album
                 # now iterate it's files to add them to our list
                 for fname in fileList:
@@ -97,7 +97,14 @@ class Albums:
                     foundAlbum = self.albums[webAlbumTitle]
                     self.scanWebPhotos(foundAlbum, webAlbum, deletedups)
                 else:
-                    album = AlbumEntry(os.path.join(self.rootDirs[0], webAlbum.title.text), webAlbum.title.text)
+                    album = AlbumEntry(
+                        self.config,
+                        os.path.join(
+                            self.rootDirs[0],
+                            webAlbum.title.text
+                        ),
+                        webAlbum.title.text
+                    )
                     self.albums[webAlbum.title.text] = album
                     self.scanWebPhotos(album, webAlbum, deletedups)
 
