@@ -1,6 +1,5 @@
 #!/usr/bin/python
 
-import os
 import re
 import argparse
 import mimetypes
@@ -21,8 +20,7 @@ import gdata.media
 import gdata.geo
 import Image
 
-
-PICASA_MAX_FREE_IMAGE_DIMENSION = 2048
+from picasawebsync.albums import *
 
 
 # Upload video code came form http://nathanvangheem.com/news/moving-to-picasa-update
@@ -89,436 +87,7 @@ def InsertVideo(self, album_or_uri, video, filename_or_handle, content_type='ima
 gdata.photos.service.PhotosService.InsertVideo = InsertVideo
 
 
-# Class to store details of an album
-class Albums:
-    def __init__(self, rootDirs, albumNaming, excludes, replace, namingextract):
-        self.rootDirs = rootDirs
-        self.albums = self.scanFileSystem(albumNaming, excludes, replace, namingextract)
 
-    # walk the directory tree populating the list of files we have locally
-    # @print_timing
-    def scanFileSystem(self, albumNaming, excludes, replace, namingextract):
-        fileAlbums = {}
-        for rootDir in self.rootDirs:
-            for dirName, subdirList, fileList in os.walk(rootDir):
-                subdirList[:] = [d for d in subdirList if not re.match(excludes, os.path.join(dirName, d))]
-                albumName = convertDirToAlbum(albumNaming, rootDir, dirName, replace, namingextract)
-                # have we already seen this album? If so append our path to it's list
-                if albumName in fileAlbums:
-                    album = fileAlbums[albumName]
-                    thisRoot = album.suggestNewRoot(dirName)
-                else:
-                    # create a new album
-                    thisRoot = dirName
-                    album = AlbumEntry(dirName, albumName)
-                    fileAlbums[albumName] = album
-                # now iterate it's files to add them to our list
-                for fname in fileList:
-                    fullFilename = os.path.join(dirName, fname)
-                    if not re.match(excludes, fullFilename):
-                        # figure out the filename relative to the root dir of the album (to ensure uniqeness)
-                        relFileName = re.sub("^/", "", fullFilename[len(thisRoot):])
-                        fileEntry = FileEntry(relFileName, fullFilename, None, True, album)
-                        album.entries[relFileName] = fileEntry
-        if verbose:
-            print ("Found " + str(len(fileAlbums)) + " albums on the filesystem")
-        return fileAlbums
-
-    def deleteEmptyWebAlbums(self, owner):
-        webAlbums = gd_client.GetUserFeed(user=owner)
-        for webAlbum in webAlbums.entry:
-            if int(webAlbum.numphotos.text) == 0:
-                print "Deleting empty album %s" % webAlbum.title.text
-                gd_client.Delete(webAlbum)
-                # @print_timing
-
-    def scanWebAlbums(self, owner, deletedups, server_excludes):
-        # walk the web album finding albums there
-        webAlbums = gd_client.GetUserFeed(user=owner)
-        for webAlbum in webAlbums.entry:
-            webAlbumTitle = Albums.flatten(webAlbum.title.text)
-            if re.match(server_excludes, webAlbumTitle):
-                if verbose:
-                    print ('Skipping (because matches server exclude) web-album %s (containing %s files)' % (
-                        webAlbum.title.text, webAlbum.numphotos.text))
-            else:
-                if verbose:
-                    print (
-                        'Scanning web-album %s (containing %s files)' % (webAlbum.title.text, webAlbum.numphotos.text))
-                # print "Album %s is %s in %s" % (webAlbumTitle, webAlbumTitle in self.albums,	",".join(self.albums))
-                if webAlbumTitle in self.albums:
-                    foundAlbum = self.albums[webAlbumTitle]
-                    self.scanWebPhotos(foundAlbum, webAlbum, deletedups)
-                else:
-                    album = AlbumEntry(os.path.join(self.rootDirs[0], webAlbum.title.text), webAlbum.title.text)
-                    self.albums[webAlbum.title.text] = album
-                    self.scanWebPhotos(album, webAlbum, deletedups)
-
-    def scanWebPhotos(self, foundAlbum, webAlbum, deletedups):
-        # bit of a hack, but can't see anything in api to do it.
-        photos = repeat(lambda: gd_client.GetFeed(webAlbum.GetPhotosUri() + "&imgmax=d"),
-                        "list photos in album %s" % foundAlbum.albumName, True)
-        webAlbum = WebAlbum(webAlbum, int(photos.total_results.text))
-        foundAlbum.webAlbum.append(webAlbum)
-        for photo in photos.entry:
-            if photo.title.text is None:
-                photoTitle = ""
-            else:
-                photoTitle = urllib.unquote(photo.title.text)
-
-            if photoTitle in foundAlbum.entries:
-                entry = foundAlbum.entries[photoTitle]
-                if entry.isWeb():
-                    if (deletedups):
-                        print "Deleted dupe of %s on server" % photoTitle
-                        repeat(lambda: gd_client.Delete(photo), "deleting dupe %s" % photoTitle, False)
-                    else:
-                        print "WARNING: More than one copy of %s - ignoring" % photoTitle
-                else:
-                    entry.setWebReference(photo)
-                    # print photo.exif.time
-            else:
-                fileEntry = FileEntry(photoTitle, None, photo, False, foundAlbum)
-                foundAlbum.entries[photoTitle] = fileEntry
-
-    def uploadMissingAlbumsAndFiles(self, compareattributes, mode, test, allowDelete):
-        size = 0
-        for album in self.albums.itervalues():
-            size += len(album.entries)
-        count = 0
-        actionCounts = {}
-        for action in Actions:
-            actionCounts[action] = 0
-        for album in self.albums.itervalues():
-            for file in album.entries.itervalues():
-                changed = file.changed(compareattributes)
-                if verbose:
-                    print ("%s (%s) #%s/%s - %s" % (mode[changed], changed, str(count), str(size), file.getFullName()))
-                if not test:
-                    if mode[changed] == Actions.DELETE_LOCAL and not allowDelete[0]:
-                        print (
-                            "Not deleteing local file %s because permissions not granted using allowDelete" % file.getFullName())
-                    else:
-                        if mode[changed] == Actions.DELETE_REMOTE and not allowDelete[1]:
-                            print (
-                                "Not deleteing remote file %s because permissions not granted using allowDelete" % file.getFullName())
-                        else:
-                            repeat(lambda: getattr(file, mode[changed].lower())(changed),
-                                   "%s on %s identified as %s" % (mode[changed], file.getFullName(), changed), False)
-                actionCounts[mode[changed]] += 1
-                count += 1
-            album.writeDate()
-        print("Finished transferring files. Total files found %s, composed of %s" % (count, str(actionCounts)))
-
-    @staticmethod
-    def createAlbumName(name, index):
-        if index == 0:
-            return name
-        else:
-            return "%s #%s" % (name, index + 1)
-
-    @staticmethod
-    def flatten(name):
-        return re.sub("#[0-9]*$", "", name).rstrip()
-
-
-class AlbumEntry:
-    def __init__(self, fileName, albumName):
-        self.paths = [fileName]
-        self.rootPath = fileName
-        self.albumName = albumName
-        self.entries = {}
-        self.webAlbum = []
-        self.webAlbumIndex = 0
-        self.earliestDate = None
-
-    def considerEarliestDate(self, exif):
-        if exif is not None and exif.time is not None \
-           and noupdatealbummetadata is False:
-            date = exif.time.text
-            if self.earliestDate is None or date < self.earliestDate:
-                self.earliestDate = date
-
-    def writeDate(self):
-        if self.earliestDate is not None and \
-           noupdatealbummetadata is False:
-            if verbose:
-                print "Attempting to write date (" + self.earliestDate + ") to album " + self.albumName
-            for a in self.webAlbum:
-                album = a.getEditObject()
-                album.timestamp = gdata.photos.Timestamp(text=self.earliestDate)
-                edit_link = album.GetEditLink()
-                if edit_link is None:
-                    print "Warning: Null edit link from " + a.albumTitle + " so skipping metadata update"
-                else:
-                    repeat
-                    (
-                        lambda:
-                        gd_client.Put
-                        (
-                            album,
-                            edit_link.href,
-                            converter=gdata.photos.AlbumEntryFromString
-                        ),
-                        "Update album metadata for " + a.albumTitle,
-                        False
-                    )
-        else:
-            print "Not Attempting to write date to album " + self.albumName
-
-    def __str__(self):
-        return (
-            self.getAlbumName() + " under " + self.rootPath + " " +
-            str(len(self.entries)) + " entries " +
-            ["exists", "doesn't exist"][not self.webAlbum] +
-            " online")
-
-    def getAlbumName(self):
-        return self.albumName
-
-    def getPathsAsString(self):
-        return ",".join(self.paths)
-
-    def suggestNewRoot(self, name):
-        for path in self.paths:
-            if name.startswith(path):
-                return path
-        self.paths.append(name)
-        return name
-
-
-# Class to store web album details
-
-class WebAlbum:
-    def __init__(self, album, numberFiles):
-        self.albumUri = album.GetPhotosUri()
-        self.albumTitle = album.title.text
-        self.numberFiles = numberFiles
-        self.albumid = album.id.text
-
-    def getEditObject(self):
-        # print "Getting id "+self.albumid +" = "+gd_client.GetEntry(self.albumid)
-        return gd_client.GetEntry(self.albumid)
-
-
-# Class to store details of an individual file
-
-class FileEntry:
-    def __init__(self, name, path, webReference, isLocal, album):
-        self.name = name
-        if path:
-            self.path = path
-            self.type = mimetypes.guess_type(path)[0]
-        else:
-            self.path = os.path.join(album.rootPath, name)
-            self.type = None
-        self.isLocal = isLocal
-        self.localHash = None
-        self.remoteHash = None
-        self.remoteDate = None
-        self.remoteTimestamp = None
-        self.remoteSize = None
-        self.album = album
-        self.setWebReference(webReference)
-
-    def setWebReference(self, webReference):
-        if webReference:
-            for content in webReference.media.content:
-                # If we haven't found a type yet, or prioritise video type
-                if not self.type or (content.medium == 'video'):
-                    self.type = content.type
-
-            self.gphoto_id = webReference.gphoto_id.text
-            self.albumid = webReference.albumid.text
-            self.webUrl = webReference.content.src
-            self.remoteHash = webReference.checksum.text
-            self.remoteDate = calendar.timegm(
-                time.strptime(re.sub("\.[0-9]{3}Z$", ".000 UTC", webReference.updated.text),
-                              '%Y-%m-%dT%H:%M:%S.000 %Z'))
-            self.remoteTimestamp = time.mktime(webReference.timestamp.datetime().timetuple())
-            self.remoteSize = int(webReference.size.text)
-        else:
-            self.webUrl = None
-
-    def getEditObject(self):
-        if self.gphoto_id:
-            photo = gd_client.GetFeed(
-                '/data/feed/api/user/%s/albumid/%s/photoid/%s' % ("default", self.albumid, self.gphoto_id))
-            return photo
-        # FIXME throw exception
-        return None
-
-    def getFullName(self):
-        return self.album.getAlbumName() + " " + self.name
-
-    def getLocalHash(self):
-        if not (self.localHash):
-            md5 = hashlib.md5()
-            with open(self.path, 'rb') as f:
-                for chunk in iter(lambda: f.read(128 * md5.block_size), b''):
-                    md5.update(chunk)
-            self.localHash = md5.hexdigest()
-        return self.localHash
-
-    def getLocalDate(self):
-        return os.path.getmtime(self.path)
-
-    def getLocalSize(self):
-        return os.path.getsize(self.path)
-
-    def changed(self, compareattributes):
-        if self.isLocal:
-            if self.isWeb():
-                # filesize (2), date (1),  hash (4)
-                if compareattributes & 1:
-                    # print "%s: remote=%s and local=%s" % (self.getFullName(), time.gmtime(self.remoteDate), time.gmtime(self.getLocalDate()))
-                    if self.remoteDate < self.getLocalDate() + 60:
-                        return Comparisons.REMOTE_OLDER
-                if compareattributes & 2:
-                    if verbose:
-                        print "%s: remote size=%s and local=%s" % (
-                            self.getFullName(), self.remoteSize, self.getLocalSize())
-                    if self.remoteSize != self.getLocalSize():
-                        return Comparisons.DIFFERENT
-                if compareattributes & 4:
-                    if self.remoteHash:
-                        if self.remoteHash != self.getLocalHash():
-                            return Comparisons.DIFFERENT
-                    else:
-                        return Comparisons.UNKNOWN
-                return Comparisons.SAME
-            else:
-                return Comparisons.LOCAL_ONLY
-        else:
-            return Comparisons.REMOTE_ONLY
-
-    def isWeb(self):
-        return self.webUrl is not None
-
-    # UPLOAD_LOCAL', 'DELETE_LOCAL', 'SILENT', 'REPORT', 'DOWNLOAD_REMOTE', 'DELETE_REMOTE', 'TAG_REMOTE', 'REPLACE_REMOTE_WITH_LOCAL', 'UPDATE_REMOTE_METADATA'
-    def delete_local(self, event):
-        os.remove(self.path)
-
-    def silent(self, event):
-        None
-
-    def report(self, event):
-        print ("Identified %s as %s - taking no action" % (self.name, event))
-
-    def tag_remote(self, event):
-        print ("Not implemented tag")
-
-    def replace_remote_with_local(self, event):
-        self.delete_remote(event)
-        self.upload_local(event)
-
-    def update_remote_metadata(self, event):
-        entry = gd_client.GetEntry(self.getEditObject().GetEditLink().href)
-        self.album.considerEarliestDate(entry.exif)
-        self.addMetadata(entry)
-        self.setWebReference(gd_client.UpdatePhotoMetadata(entry))
-
-    def download_remote(self, event):
-        if self.type not in chosenFormats:
-            print ("Skipped %s (because can't download file of type %s)." % (self.path, self.type))
-        elif dateLimit is not None and self.remoteTimestamp < dateLimit:
-            print ("Skipped %s (because remote album pre %s)." % (self.path, time.asctime(dateLimit)))
-        else:
-            url = self.webUrl
-            path = os.path.split(self.path)[0]
-            if not os.path.exists(path):
-                os.makedirs(path)
-            urllib.urlretrieve(url, self.path)
-            os.utime(path, (int(self.remoteDate), int(self.remoteDate)))
-
-    def delete_remote(self, event):
-        gd_client.Delete(self.getEditObject())
-        print ("Deleted %s" % self.getFullName())
-
-    def upload_local(self, event):
-        if self.type in chosenFormats:
-            while self.album.webAlbumIndex < len(self.album.webAlbum) and \
-                  self.album.webAlbum[self.album.webAlbumIndex].numberFiles >= 999:
-                self.album.webAlbumIndex = self.album.webAlbumIndex + 1
-            if self.album.webAlbumIndex >= len(self.album.webAlbum):
-                googleWebAlbum = gd_client.InsertAlbum(
-                    title=Albums.createAlbumName
-                    (
-                        self.album.getAlbumName(),
-                        self.album.webAlbumIndex
-                    ),
-                    access='private',
-                    summary='synced from ' + self.album.rootPath +
-                    ' using picasawebsync'
-                )
-                subAlbum = WebAlbum(googleWebAlbum, 0)
-                self.album.webAlbum.append(subAlbum)
-                if verbose:
-                    print 'Created album %s to sync %s' %
-                    (
-                        subAlbum.albumTitle,
-                        self.album.rootPath
-                    )
-            else:
-                subAlbum = self.album.webAlbum[self.album.webAlbumIndex]
-            if self.type in supportedImageFormats:
-                photo = self.upload_local_img(subAlbum)
-            if self.type in supportedVideoFormats:
-                if self.getLocalSize() > 1073741824:
-                    print "Not uploading %s because it exceeds maximum file "
-                    "size" % self.path
-                else:
-                    photo = self.upload_local_video(subAlbum)
-        else:
-            print "Skipped %s (because can't upload file of type %s)."
-            % (self.path, self.type)
-
-    def upload_local_img(self, subAlbum):
-        name = urllib.quote(self.name, '')
-        metadata = gdata.photos.PhotoEntry()
-        # have to quote as certain charecters, e.g. / seem to break it
-        metadata.title = atom.Title(text=name)
-        self.addMetadata(metadata)
-        currentFile = self.path
-        photo = gd_client.InsertPhoto
-        (
-            subAlbum.albumUri,
-            metadata,
-            currentFile,
-            self.type
-        )
-        self.album.considerEarliestDate(photo.exif)
-        subAlbum.numberFiles = subAlbum.numberFiles + 1
-        return photo
-
-    def upload_local_video(self, subAlbum):
-        name = urllib.quote(self.name, '')
-        metadata = gdata.photos.VideoEntry()
-        # have to quote as certain charecters, e.g. / seem to break it
-        metadata.title = atom.Title(text=name)
-        self.addMetadata(metadata)
-        photo = gd_client.InsertVideo
-        (
-            subAlbum.albumUri,
-            metadata,
-            self.path,
-            self.type
-        )
-        subAlbum.numberFiles = subAlbum.numberFiles + 1
-        return photo
-
-    def addMetadata(self, metadata):
-        metadata.summary = atom.Summary
-        (
-            text=os.path.relpath
-            (
-                self.path, self.album.rootPath
-            ),
-            summary_type='text'
-        )
-        metadata.checksum = gdata.photos.Checksum(text=self.getLocalHash())
-        if verbose and (metadata is None):
-            print "Warning: " + self.name + " does not have a date set"
 
 
 # Method to translate directory name to an album name
@@ -541,8 +110,7 @@ def convertDirToAlbum(formElements, root, name, replace, namingextract):
     return work
 
 
-supportedImageFormats = frozenset
-(
+supportedImageFormats = frozenset(
     [
         "image/bmp",
         "image/gif",
@@ -551,8 +119,7 @@ supportedImageFormats = frozenset
     ]
 )
 
-supportedVideoFormats = frozenset
-(
+supportedVideoFormats = frozenset(
     [
         "video/3gpp",
         "video/avi",
@@ -575,8 +142,7 @@ class Enum(set):
         raise AttributeError
 
 
-Comparisons = Enum
-(
+Comparisons = Enum(
     [
         'REMOTE_OLDER',
         'DIFFERENT',
@@ -587,8 +153,7 @@ Comparisons = Enum
     ]
 )
 
-Actions = Enum
-(
+Actions = Enum(
     [
         'UPLOAD_LOCAL',
         'DELETE_LOCAL',
@@ -645,8 +210,7 @@ SyncUploadActions = {
     Comparisons.LOCAL_ONLY: Actions.UPLOAD_LOCAL,
     Comparisons.REMOTE_ONLY: Actions.DELETE_REMOTE}
 
-modes =
-{
+modes={
     'upload': UploadOnlyActions,
     'download': DownloadOnlyActions,
     'report': PassiveActions,
@@ -655,15 +219,13 @@ modes =
     'syncUpload': SyncUploadActions
 }
 
-formats =
-{
+formats={
     'photo': supportedImageFormats,
     'video': supportedVideoFormats,
     'both': supportedImageFormats.union(supportedVideoFormats)
 }
 
-allowDeleteOptions =
-{
+allowDeleteOptions={
     'neither': (False, False),
     'both': (True, True),
     'local': (True, False),
@@ -703,8 +265,11 @@ def repeat(function,  description, onFailRethrow):
             else:
                 break
         else:
-            print "WARNING: Failed to %s. This was due to %s" %
-            (description, exc_info)
+            print
+            (
+                "WARNING: Failed to %s. This was due to %s" %
+                (description, exc_info)
+            )
             if onFailRethrow:
                 raise exc_info
 
@@ -719,8 +284,7 @@ def oauthLogin():
     credentials = storage.get()
 
     if credentials is None or credentials.invalid:
-        flow = client.flow_from_clientsecrets
-        (
+        flow = client.flow_from_clientsecrets(
             'client_secrets.json',
             scope='https://picasaweb.google.com/data/',
             redirect_uri='urn:ietf:wg:oauth:2.0:oob'
@@ -733,8 +297,7 @@ def oauthLogin():
     if credentials.access_token_expired:
         credentials.refresh(httplib2.Http())
 
-    gd_client = gdata.photos.service.PhotosService
-    (
+    gd_client = gdata.photos.service.PhotosService(
         email='default',
         additional_headers={
             'Authorization': 'Bearer %s' % credentials.access_token
@@ -749,8 +312,7 @@ defaultNamingFormat = ["{0}", "{1} ({0})"]
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument
-(
+parser.add_argument(
     "-d",
     "--directory",
     nargs='+',
@@ -758,8 +320,7 @@ parser.add_argument
     "downloaded items"
 )
 
-parser.add_argument
-(
+parser.add_argument(
     "-n",
     "--naming",
     default=defaultNamingFormat, nargs='+',
@@ -772,8 +333,7 @@ parser.add_argument
     "Default is \"%s\"" % defaultNamingFormat
 )
 
-parser.add_argument
-(
+parser.add_argument(
     "--namingextract",
     default=False,
     help="Naming extraction rules. It applies to the name computed according "
@@ -782,8 +342,7 @@ parser.add_argument
     "(ex: '([0-9]{4})[0-9]*-(.*)|\2 (\2)'"
 )
 
-parser.add_argument
-(
+parser.add_argument(
     "-c",
     "--compareattributes",
     type=int,
@@ -799,8 +358,7 @@ parser.add_argument
     default=3
 )
 
-parser.add_argument
-(
+parser.add_argument(
     "-v",
     "--verbose",
     default=False,
@@ -808,8 +366,7 @@ parser.add_argument
     help="Increase verbosity"
 )
 
-parser.add_argument
-(
+parser.add_argument(
     "-t",
     "--test",
     default=False,
@@ -818,8 +375,7 @@ parser.add_argument
     "(you may want to enable verbose)"
 )
 
-parser.add_argument
-(
+parser.add_argument(
     "-m",
     "--mode",
     type=convertMode,
@@ -831,8 +387,7 @@ parser.add_argument
     default="upload"
 )
 
-parser.add_argument
-(
+parser.add_argument(
     "-dd",
     "--deletedups",
     default=False,
@@ -840,8 +395,7 @@ parser.add_argument
     help="Delete any remote side duplicates"
 )
 
-parser.add_argument
-(
+parser.add_argument(
     "-f",
     "--format",
     type=convertFormat,
@@ -849,8 +403,7 @@ parser.add_argument
     help="Upload photos, videos or both"
 )
 
-parser.add_argument
-(
+parser.add_argument(
     "-s",
     "--skip",
     nargs='*',
@@ -858,24 +411,21 @@ parser.add_argument
     help="Skip (local) files or folders using a list of glob expressions."
 )
 
-parser.add_argument
-(
+parser.add_argument(
     "--skipserver",
     nargs='*',
     default=[],
     help="Skip (remote) files or folders using a list of glob expressions."
 )
 
-parser.add_argument
-(
+parser.add_argument(
     "--purge",
     default=False,
     action='store_true',
     help="Purge empty web filders"
 )
 
-parser.add_argument
-(
+parser.add_argument(
     "--noupdatealbummetadata",
     default=False,
     action='store_true',
@@ -890,8 +440,7 @@ parser.add_argument(
     list(allowDeleteOptions)
 )
 
-parser.add_argument
-(
+parser.add_argument(
     "-r",
     "--replace",
     default=False,
@@ -899,8 +448,7 @@ parser.add_argument
     "replace string (ex: '-| '"
 )
 
-parser.add_argument
-(
+parser.add_argument(
     "-o",
     "--owner",
     default="default",
@@ -908,16 +456,14 @@ parser.add_argument
     "own)"
 )
 
-parser.add_argument
-(
+parser.add_argument(
     "--dateLimit",
     type=convertDate,
     help="A date limit, before which albums are ignored."
 )
 
 for comparison in Comparisons:
-    parser.add_argument
-    (
+    parser.add_argument(
         "--override:%s" % comparison,
         default=None,
         help="Override the action for %s from the list of %s" %
@@ -942,13 +488,16 @@ for comparison in Comparisons:
         mode[comparison] = r
 
 excludes = r'|'.join([fnmatch.translate(x) for x in args.skip]) or r'$.'
-server_excludes =
+server_excludes = \
 r'|'.join([fnmatch.translate(x) for x in args.skipserver]) or r'$.'
 
-print "Excluding %s on client and %s on server" % (excludes, server_excludes)
-
-albums = Albums
+print
 (
+    "Excluding %s on client and %s on server" %
+    (excludes, server_excludes)
+)
+
+albums = Albums(
     rootDirs,
     albumNaming,
     excludes,
@@ -956,15 +505,13 @@ albums = Albums
     args.namingextract
 )
 
-albums.scanWebAlbums
-(
+albums.scanWebAlbums(
     args.owner,
     args.deletedups,
     server_excludes
 )
 
-albums.uploadMissingAlbumsAndFiles
-(
+albums.uploadMissingAlbumsAndFiles(
     args.compareattributes,
     mode,
     args.test,
