@@ -1,5 +1,6 @@
 import logging
 
+import gdata.photos
 
 class AlbumEntry:
     def __init__(self, config, fileName, albumName):
