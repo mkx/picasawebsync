@@ -1,7 +1,7 @@
 
-from progress.bar import ShadyBar
+from progress.bar import Bar
 
-class FileUploadBar(ShadyBar):
+class FileUploadBar(Bar):
     suffix = '%(index)d/%(max)d %(filename)s'
 
     @property
