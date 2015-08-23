@@ -172,7 +172,7 @@ class FileEntry:
                     summary='synced from ' + self.album.rootPath +
                     ' using picasawebsync'
                 )
-                subAlbum = WebAlbum(googleWebAlbum, 0)
+                subAlbum = WebAlbum(self.config, googleWebAlbum, 0)
                 self.album.webAlbum.append(subAlbum)
                 if self.config.verbose:
                     print ('Created album %s to sync %s' %
