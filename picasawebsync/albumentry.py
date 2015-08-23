@@ -21,9 +21,10 @@ class AlbumEntry:
 
     def writeDate(self):
         if self.earliestDate is not None and \
-           noupdatealbummetadata is False:
-            if verbose:
-                print "Attempting to write date (" + self.earliestDate + ") to album " + self.albumName
+           self.config.noupdatealbummetadata is False:
+            if self.config.verbose:
+                print("Attempting to write date (%s) to album %s"
+                      % (self.earliestDate, self.albumName))
             for a in self.webAlbum:
                 album = a.getEditObject()
                 album.timestamp = gdata.photos.Timestamp(text=self.earliestDate)
