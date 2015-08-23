@@ -6,6 +6,7 @@ import urllib
 from albumentry import *
 from webalbum import *
 from fileentry import FileEntry
+from fileuploadbar import FileUploadBar
 
 from consts import Actions
 
@@ -14,44 +15,36 @@ import gdata.geo
 
 import logging
 
-from progress.bar import Bar
 
 
 # Class to store details of an album
 class Albums:
-    def __init__(self, config, replace, namingextract):
+    def __init__(self, config, replace):
         self.config = config
-        self.rootDirs = config.rootDirs
-        self.albums = self.scanFileSystem(config.albumNaming, config.excludes, replace, namingextract)
-
-    # Method to translate directory name to an album name
-    def convertDirToAlbum(self, formElements, root, name, replace, namingextract):
-        if root == name:
-            return "Home"
-        nameElements = re.split("/", re.sub("^/", "", name[len(root):]))
-        which = min(len(formElements), len(nameElements))
-        work = formElements[which - 1].format(*nameElements)
-        # apply naming extraction if provided
-        if namingextract:
-            nePattern = namingextract.split('|')
-            work = re.sub(nePattern[0], nePattern[1], work)
-
-        # apply replacement pattern if provided
-        if replace:
-            rePattern = replace.split('|')
-            work = re.sub(rePattern[0], rePattern[1], work)
-
-        return work
+        self.albums = self.scanFileSystem(config.rootDirs,
+                                          config.excludes,
+                                          replace)
 
     # walk the directory tree populating the list of files we have locally
     # @print_timing
-    def scanFileSystem(self, albumNaming, excludes, replace, namingextract):
+    def scanFileSystem(self, rootDirs, excludes, replace):
         fileAlbums = {}
-        for rootDir in self.rootDirs:
+        for rootDir in rootDirs:
             for dirName, subdirList, fileList in os.walk(rootDir):
-                subdirList[:] = [d for d in subdirList if not re.match(excludes, os.path.join(dirName, d))]
-                albumName = self.convertDirToAlbum(albumNaming, rootDir, dirName, replace, namingextract)
-                # have we already seen this album? If so append our path to it's list
+                subdirList[:] = [d for d in subdirList
+                                 if not re.match(excludes,
+                                                 os.path.join(dirName, d))]
+                # this looks weird, but what we want to achieve:
+                # the right most part of rootDir and everything from
+                # dirName, without a . or / at the end
+                albumName = os.path.normpath(
+                    os.path.join(
+                        os.path.basename(os.path.normpath(rootDir)),
+                        os.path.relpath(dirName, rootDir)
+                    )
+                )
+                # have we already seen this album? If so append our path to
+                # it's list
                 if albumName in fileAlbums:
                     album = fileAlbums[albumName]
                     thisRoot = album.suggestNewRoot(dirName)
@@ -60,27 +53,29 @@ class Albums:
                     thisRoot = dirName
                     album = AlbumEntry(self.config, dirName, albumName)
                     fileAlbums[albumName] = album
-                # now iterate it's files to add them to our list
+                # now iterate its files to add them to our list
                 for fname in fileList:
                     fullFilename = os.path.join(dirName, fname)
                     if not re.match(excludes, fullFilename):
-                        # figure out the filename relative to the root dir of the album (to ensure uniqeness)
-                        relFileName = re.sub("^/", "", fullFilename[len(thisRoot):])
-                        fileEntry = FileEntry(self.config, relFileName, fullFilename, None, True, album)
+                        # figure out the filename relative to the root dir of
+                        # the album (to ensure uniqeness)
+                        relFileName = re.sub("^/", "",
+                                             fullFilename[len(thisRoot):])
+                        fileEntry = FileEntry(self.config, relFileName,
+                                              fullFilename, None, True, album)
                         album.entries[relFileName] = fileEntry
-        if self.config.verbose:
-            print ("Found " + str(len(fileAlbums)) + " albums on the filesystem")
-        if len(fileAlbums) == 0:
-            logging.error("No local album")
+
+        logging.info("Found %i albums on the filesystem" %
+                     len(fileAlbums))
+        self.rootDir = rootDirs[0]
         return fileAlbums
 
     def deleteEmptyWebAlbums(self, owner):
         webAlbums = gd_client.GetUserFeed(user=owner)
         for webAlbum in webAlbums.entry:
             if int(webAlbum.numphotos.text) == 0:
-                print "Deleting empty album %s" % webAlbum.title.text
+                logging.info("Deleting empty album %s" % webAlbum.title.text)
                 gd_client.Delete(webAlbum)
-                # @print_timing
 
     def scanWebAlbums(self, owner, deletedups, server_excludes):
         # walk the web album finding albums there
@@ -110,7 +105,7 @@ class Albums:
                     album = AlbumEntry(
                         self.config,
                         os.path.join(
-                            self.rootDirs[0],
+                            self.rootDir,
                             webAlbum.title.text
                         ),
                         webAlbum.title.text
@@ -163,10 +158,11 @@ class Albums:
         for action in Actions:
             actionCounts[action] = 0
 
-        bar = Bar('Uploading', max=size)
+        bar = FileUploadBar('Uploading', max=size)
 
         for album in self.albums.itervalues():
             for file in album.entries.itervalues():
+                bar.filename = file.getFullName()
                 changed = file.changed(compareattributes)
                 if self.config.verbose:
                     print(
@@ -191,7 +187,7 @@ class Albums:
                         if mode[changed] == Actions.DELETE_REMOTE \
                            and not allowDelete[1]:
                             print(
-                                "Not deleteing remote file %s because "
+                                "Not deleting remote file %s because "
                                 "permissions not granted using allowDelete" %
                                 file.getFullName()
                             )

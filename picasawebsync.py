@@ -11,36 +11,14 @@ import logging
 
 # start of the program
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(
+    description='Sync some local folders with Google Photos (Picasa)'
+)
 
 parser.add_argument(
-    "-d",
-    "--directory",
+    'folder',
     nargs='+',
-    help="The local directories. The first of these will be used for any "
-    "downloaded items"
-)
-
-parser.add_argument(
-    "-n",
-    "--naming",
-    default=defaultNamingFormat, nargs='+',
-    help="Expression to convert directory names to web album names. Formed as "
-    "a ~ seperated list of substitution strings, "
-    "so if a sub directory is in the root scanning directory then the first "
-    "element will be used, if there is a directory between them the second, "
-    "etc. If the directory path is longer than the "
-    "list then the last element is used (and thus the path is flattened). "
-    "Default is \"%s\"" % defaultNamingFormat
-)
-
-parser.add_argument(
-    "--namingextract",
-    default=False,
-    help="Naming extraction rules. It applies to the name computed according "
-    "to naming options."
-    "Search capturing pattern is seperated by a | from formatting expression "
-    "(ex: '([0-9]{4})[0-9]*-(.*)|\2 (\2)'"
+    help='a local folder to synchronize with'
 )
 
 parser.add_argument(
@@ -181,15 +159,14 @@ config.chosenFormats = args.format
 config.dateLimit = args.dateLimit
 
 config.verbose = args.verbose
-config.rootDirs = args.directory  # set the directory you want to start from
+config.rootDirs = args.folder  # set the directory you want to start from
 
-config.albumNaming = args.naming
 config.mode = args.mode
 config.noupdatealbummetadata = args.noupdatealbummetadata
 for comparison in Comparisons:
     r = getattr(args, "override:%s" % comparison, None)
     if r:
-        mode[comparison] = r
+        config.mode[comparison] = r
 
 config.excludes = r'|'.join([fnmatch.translate(x) for x in args.skip]) or r'$.'
 config.server_excludes = \
@@ -202,8 +179,7 @@ logging.info(
 
 albums = Albums(
     config,
-    args.replace,
-    args.namingextract
+    args.replace
 )
 
 albums.scanWebAlbums(
