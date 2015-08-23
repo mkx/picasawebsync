@@ -75,7 +75,7 @@ class Albums:
         for webAlbum in webAlbums.entry:
             if int(webAlbum.numphotos.text) == 0:
                 logging.info("Deleting empty album %s" % webAlbum.title.text)
-                gd_client.Delete(webAlbum)
+                self.config.getGdClient.Delete(webAlbum)
 
     def scanWebAlbums(self, owner, deletedups, server_excludes):
         # walk the web album finding albums there
@@ -117,7 +117,7 @@ class Albums:
         photos = self.config.getGdClient().GetFeed(
             webAlbum.GetPhotosUri() + "&imgmax=d"
         )
-        webAlbum = WebAlbum(webAlbum, int(photos.total_results.text))
+        webAlbum = WebAlbum(self.config, webAlbum, int(photos.total_results.text))
         foundAlbum.webAlbum.append(webAlbum)
         for photo in photos.entry:
             if photo.title.text is None:
