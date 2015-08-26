@@ -15,24 +15,6 @@ import gdata.geo
 
 import logging
 
-from multiprocessing import Process, Queue
-
-
-def processor(queue, size):
-    bar = FileUploadBar('Uploading', max=size)
-    while True:
-        (file, mode, changed) = queue.get()
-        if file == -1:
-            break
-        bar.filename = file.getFullName()
-        try:
-            getattr(file, mode)(changed)
-            bar.next()
-        except:
-            queue.put([file, mode, changed])
-    bar.finish()
-    return True
-
 
 
 # Class to store details of an album
@@ -176,12 +158,11 @@ class Albums:
         for action in Actions:
             actionCounts[action] = 0
 
-        queue = Queue()
-        process = Process(target=processor, args=(queue,size))
-        process.start()
+        bar = FileUploadBar('Uploading', max=size)
 
         for album in self.albums.itervalues():
             for file in album.entries.itervalues():
+                bar.filename = file.getFullName()
                 changed = file.changed(compareattributes)
                 if self.config.verbose:
                     print(
@@ -211,14 +192,14 @@ class Albums:
                                 file.getFullName()
                             )
                         else:
-                            queue.put([file, mode[changed].lower(), changed])
+                            getattr(file, mode[changed].lower())(changed)
 
                 actionCounts[mode[changed]] += 1
                 count += 1
+                bar.next()
             album.writeDate()
 
-        queue.put([-1, None, None])
-        process.join()
+        bar.finish()
 
         print(
             "Finished transferring files. Total files found %s, composed of %s"
