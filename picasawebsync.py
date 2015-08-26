@@ -188,9 +188,6 @@ albums.scanWebAlbums(
     config.server_excludes
 )
 
-if args.purge:
-    albums.deleteEmptyWebAlbums(args.owner)
-
 albums.uploadMissingAlbumsAndFiles(
     args.compareattributes,
     config.mode,
@@ -198,3 +195,5 @@ albums.uploadMissingAlbumsAndFiles(
     args.allowDelete
 )
 
+if args.purge:
+    albums.deleteEmptyWebAlbums(args.owner)
