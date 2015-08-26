@@ -71,11 +71,11 @@ class Albums:
         return fileAlbums
 
     def deleteEmptyWebAlbums(self, owner):
-        webAlbums = gd_client.GetUserFeed(user=owner)
+        webAlbums = self.config.getGdClient().GetUserFeed(user=owner)
         for webAlbum in webAlbums.entry:
             if int(webAlbum.numphotos.text) == 0:
                 logging.info("Deleting empty album %s" % webAlbum.title.text)
-                self.config.getGdClient.Delete(webAlbum)
+                self.config.getGdClient().Delete(webAlbum)
 
     def scanWebAlbums(self, owner, deletedups, server_excludes):
         # walk the web album finding albums there

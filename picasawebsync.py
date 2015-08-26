@@ -101,7 +101,7 @@ parser.add_argument(
     "--purge",
     default=False,
     action='store_true',
-    help="Purge empty web filders"
+    help="Purge empty web folders"
 )
 
 parser.add_argument(
@@ -188,6 +188,9 @@ albums.scanWebAlbums(
     config.server_excludes
 )
 
+if args.purge:
+    albums.deleteEmptyWebAlbums(args.owner)
+
 albums.uploadMissingAlbumsAndFiles(
     args.compareattributes,
     config.mode,
@@ -195,5 +198,3 @@ albums.uploadMissingAlbumsAndFiles(
     args.allowDelete
 )
 
-if args.purge:
-    albums.deleteEmptyWebAlbums(args.owner)
